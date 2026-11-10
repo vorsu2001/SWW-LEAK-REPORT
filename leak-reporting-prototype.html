@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Leak Reporting Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: map of Devon and Cornwall beside the reporting panel; panel stacks under the map on phones. */
+:root{
+  --bg:#f3f6f6; --surface:#ffffff; --sunk:#e9efef; --line:#d3dddc; --fg:#13222b; --muted:#4b5c66;
+  --accent:#0f5e8c; --accent-soft:#e2eef6; --on-accent:#ffffff;
+  --open:#b4540a; --open-soft:#fcefe1; --open-ink:#7a3604;
+  --fixed:#2f7d4a; --fixed-soft:#e3f2e8; --fixed-ink:#1d5432;
+  --warn-soft:#fdf6d8; --warn-ink:#6b5300;
+  --sea:#bcd6e4; --land:#e9ede1; --coast:#8fa3a8; --moor:#d6dcc0; --moor-ink:#5f6b3c; --town:#d9d6cc; --road:#e0a23a; --road-minor:#c9b98f; --border:#8a7f9c; --map-label:#33434b; --map-label-soft:#5b6a72; --halo:#f6f8f3;
+  --display:"IBM Plex Sans","Segoe UI",system-ui,sans-serif; --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.5;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:20px 40px}
+.wrap{max-width:1200px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+h1{font-family:var(--display);font-size:24px;font-weight:700;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 0;font-size:14px}
+.badge{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:var(--warn-soft);color:var(--warn-ink)}
+[hidden]{display:none!important}
+.landing{display:flex;flex-direction:column;gap:28px;padding-block:8px 24px}
+.land-top{display:flex;justify-content:flex-end}
+.hero{display:flex;flex-direction:column;gap:14px;max-width:640px}
+.eyebrow{margin:0;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1.big{font-size:clamp(34px,6vw,52px);line-height:1.05;letter-spacing:-.01em}
+.lead{margin:0;font-size:18px;color:var(--fg);max-width:56ch}
+.big-btn{font-size:17px;min-height:52px;padding:12px 28px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:8px}
+.card h2{font-size:17px;margin:0}
+.card p,.card ul{margin:0;color:var(--muted)}
+.card ul{padding-left:18px}
+#app > .wrap{padding:0;max-width:none}
+.btn{appearance:none;font:inherit;border:1px solid var(--line);background:var(--surface);color:var(--fg);font-weight:600;border-radius:var(--r);padding:10px 16px;min-height:44px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.warn{border-color:var(--open);color:var(--open-ink)}
+.btn.small{min-height:40px;padding:6px 12px;font-size:14px}
+.btn.icon{width:44px;padding:0;font-size:20px;line-height:1}
+.btn:focus-visible,select:focus-visible,input:focus-visible,.chip-opt:focus-within,.marker:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.cust{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
+.mapcol{flex:3 1 560px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.panel{flex:2 1 340px;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.toolbar select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--fg);padding:0 10px}
+.toolbar .sp{flex:1}
+.mapbox{position:relative;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--sea);aspect-ratio:1000/640;max-width:100%}
+.mapbox svg{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair;user-select:none}
+.mapbox svg.grabbing{cursor:grabbing}
+.scale{position:absolute;left:12px;bottom:10px;display:flex;flex-direction:column;gap:2px;font-family:var(--mono);font-size:12px;color:var(--map-label);background:color-mix(in srgb,var(--surface) 80%,transparent);padding:4px 8px;border-radius:6px;pointer-events:none}
+.scale i{display:block;height:6px;border:2px solid var(--map-label);border-top:0}
+.zoomhint{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;pointer-events:none;white-space:nowrap;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:12px;height:12px;border-radius:50%;display:inline-block}
+.hint{font-size:13px;color:var(--muted);margin:0}
+.stepper{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.panel h2{font-family:var(--display);font-size:20px;margin:0;line-height:1.25;text-wrap:balance}
+.panel p{margin:0}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;background:var(--sunk);border-radius:var(--r);padding:12px}
+.facts div{min-width:0}
+.facts .k{font-size:12px;color:var(--muted)}
+.facts .v{font-weight:600;overflow-wrap:anywhere}
+.facts .wide{grid-column:span 2}
+.mono{font-family:var(--mono);font-size:14px}
+.nearby{display:flex;flex-direction:column;gap:8px}
+.leakcard{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface);text-align:left;cursor:pointer;width:100%;color:var(--fg);font:inherit}
+.leakcard:hover{border-color:var(--accent)}
+.lc-top{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.lc-title{font-weight:700}
+.dist{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:999px;background:var(--sunk);white-space:nowrap}
+.status{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:2px 10px;border-radius:999px;width:fit-content}
+.st-open{background:var(--open-soft);color:var(--open-ink)}
+.st-fixed{background:var(--fixed-soft);color:var(--fixed-ink)}
+.meta{font-size:13px;color:var(--muted)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.callout{background:var(--open-soft);color:var(--open-ink);border-radius:var(--r);padding:10px 12px;font-size:14px}
+.callout.ok{background:var(--fixed-soft);color:var(--fixed-ink)}
+.callout.info{background:var(--accent-soft);color:var(--fg)}
+fieldset{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+legend,label.lbl{font-weight:600;font-size:15px;padding:0}
+.opt{font-weight:400;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip-opt{position:relative}
+.chip-opt input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.chip-opt span{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.chip-opt input:checked + span{border:2px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600;padding:0 13px}
+input[type=text],input[type=email],input[type=tel]{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:var(--r);padding:0 12px;background:var(--surface);color:var(--fg);width:100%}
+.photos{display:flex;flex-wrap:wrap;gap:8px}
+.thumb{position:relative;width:84px;height:84px;border-radius:var(--r);overflow:hidden;background:var(--sunk)}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb button{position:absolute;top:4px;right:4px;width:28px;height:28px;border-radius:50%;border:0;background:rgba(10,20,25,.75);color:#fff;cursor:pointer;font-size:16px;line-height:1}
+.upload{position:relative;display:flex;align-items:center;justify-content:center;width:110px;height:84px;border:1.5px dashed var(--accent);border-radius:var(--r);background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:14px;cursor:pointer;text-align:center}
+.upload input{position:absolute;width:1px;height:1px;opacity:0}
+.desc{font-size:14px;color:var(--fg);font-style:italic}
+.quote{background:var(--sunk);border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:6px}
+.quote .k{font-size:12px;color:var(--muted)}
+.quote p{font-style:italic}
+textarea{font:inherit;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;background:var(--surface);color:var(--fg);width:100%;resize:vertical}
+textarea:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.linkbtn{appearance:none;border:0;background:none;padding:0;font:inherit;font-weight:600;color:var(--accent);text-decoration:underline;cursor:pointer;min-height:auto}
+.sel{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--fg);padding:0 10px;width:100%}
+.gridrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.gridrow .mono{font-size:17px}
+.err{color:var(--open-ink);font-size:13px;font-weight:600}
+.ref{font-family:var(--mono);font-size:22px;font-weight:500}
+.note{font-size:13px;color:var(--muted);max-width:80ch;margin:0}
+@media (prefers-reduced-motion:no-preference){.pulse{animation:pulse 1.6s ease-out infinite;transform-box:fill-box;transform-origin:center}}
+@keyframes pulse{0%{transform:scale(1);opacity:.45}100%{transform:scale(2.6);opacity:0}}
+
+/* Demo theme: mint header band, deep indigo actions, blue accents. */
+:root{
+  --bg:#f5f6fa; --surface:#ffffff; --sunk:#eff0f6; --line:#d8dae6; --fg:#1c1a33; --muted:#53516a;
+  --accent:#2e2a50; --accent-soft:#ebe9f5; --on-accent:#ffffff;
+  --brand-blue:#00539f; --brand-green:#0f9d58; --brand-mint:#cfe8e1; --brand-mint-ink:#0e2f2a;
+  --display:"Figtree","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif;
+  color-scheme:light;
+}
+html,body{margin:0}
+.brandbar{background:var(--brand-mint);color:var(--brand-mint-ink);margin-left:calc(-1 * max(16px, env(safe-area-inset-left, 0px)));margin-right:calc(-1 * max(16px, env(safe-area-inset-right, 0px)));margin-top:-20px;margin-bottom:8px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:10px}
+.brandbar .in{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.wordmark{display:flex;flex-direction:column;line-height:1.05;font-family:var(--display)}
+.wordmark b{font-size:19px;font-weight:800;color:var(--brand-blue);letter-spacing:-.01em}
+.wordmark span{font-size:16px;font-weight:600;color:var(--brand-blue)}
+.wordmark i{display:block;height:4px;width:74px;border-radius:2px;margin-bottom:5px;background:linear-gradient(90deg,var(--brand-green) 0 50%,var(--brand-blue) 50% 100%)}
+.eyebrow{color:var(--brand-blue)}
+h1.big{color:var(--accent);font-weight:800}
+.card h2{color:var(--accent)}
+.btn{border-radius:8px}
+.btn.primary{background:var(--accent);border-color:var(--accent)}
+.status.st-new{background:var(--accent-soft);color:var(--accent)}
+</style>
+
+</head>
+<body>
+<div class="brandbar"><div class="in"><div class="wordmark" aria-label="Leak reporting prototype"><b>Leak reporting</b><span>Prototype</span></div><span class="badge">Demo data only</span></div></div>
+<div class="wrap">
+  <section id="landing" class="landing" aria-labelledby="landing-title">
+    
+    <div class="hero">
+      <p class="eyebrow">Report a problem</p>
+      <h1 id="landing-title" class="big">Report a leak</h1>
+      <p class="lead">Seen water coming out of a road, pavement or field? Show us where it is and we'll get it fixed. It takes about 2 minutes.</p>
+      <div class="actions"><button type="button" class="btn primary big-btn" id="start">Report a leak</button></div>
+      <p class="meta">Already reported? You'll see nearby leaks on the map and can join that case for text or email updates.</p>
+    </div>
+    <div class="cards">
+      <div class="card"><h2>Is it an emergency?</h2><p>If water is flooding a home or road, or it's causing danger, call us on [EMERGENCY NUMBER] instead of using this form.</p></div>
+      <div class="card"><h2>Is it on your property?</h2><p>Leaks inside your home or on your own supply pipe are usually yours to fix. This form is for leaks in roads, pavements, verges and fields.</p></div>
+      <div class="card"><h2>What you'll need</h2><ul><li>Where the leak is (you'll drop a pin on a map)</li><li>What it looks like and how fast it's flowing</li><li>A photo, if you can take one safely</li></ul></div>
+    </div>
+  </section>
+  <div id="app" hidden>
+  <div class="wrap">
+  <header class="top">
+    <div>
+      <button type="button" class="btn small" id="home" style="margin-bottom:8px">← Back</button>
+      <h1>Report a leak</h1>
+      <p class="sub">Report a leak in Devon or Cornwall, and see leaks that are already reported near you.</p>
+    </div>
+  </header>
+
+  <div class="cust">
+    <div class="mapcol">
+      <div class="toolbar">
+        <label for="jump" class="meta" style="font-weight:600">Go to</label>
+        <select id="jump"><option value="">Choose a town…</option></select>
+        <button class="btn small" id="use-loc" type="button">Use my location</button>
+        <span class="sp"></span>
+        <button class="btn small icon" id="zin" type="button" aria-label="Zoom in">+</button>
+        <button class="btn small icon" id="zout" type="button" aria-label="Zoom out">−</button>
+        <button class="btn small" id="zall" type="button">Whole region</button>
+      </div>
+      <div class="mapbox" id="mapbox">
+        <svg id="map" role="application" aria-label="Map of Devon and Cornwall. Drag to move, scroll or pinch to zoom, click to place the leak pin."></svg>
+        <div class="zoomhint" id="zoomhint" hidden>Zoom in to place your pin</div>
+        <div class="scale" id="scale"><i id="scalebar"></i><span id="scaletxt"></span></div>
+      </div>
+      <div class="legend" aria-hidden="true">
+        <span><i class="dot" style="background:var(--accent)"></i>Your pin</span>
+        <span><i class="dot" style="background:var(--open)"></i>Already reported</span>
+        <span><i class="dot" style="background:var(--fixed)"></i>Repaired in the last 60 days</span>
+        <span><i class="dot" style="background:var(--moor)"></i>Moorland</span>
+        <span><i class="dot" style="background:var(--road)"></i>Main roads</span>
+      </div>
+      <p class="hint">Drag to move the map, scroll or pinch to zoom, and click to drop your pin. Leaks within 200 m of the pin are listed. Numbered bubbles group leaks when you're zoomed out; click one to zoom in.</p>
+    </div>
+    <div class="panel" id="panel" aria-live="polite"></div>
+  </div>
+
+  <p class="note">Prototype only. The coastline comes from Natural Earth; towns, moors and roads are approximate, and every leak shown is made up. A live version would use the detailed street maps in Salesforce Maps and live leak data from Fusion. "Use my location" jumps to a sample spot in Plymouth.</p>
+  </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  const LAND = "M276500 -8000L276500 173860L276500 173860L276500 -8000ZM276500 -8000L276500 83110L271450 80640L258480 79140L255940 77650L254410 77840L251870 78770L251100 79890L250090 82130L249830 84560L250340 85680L252120 86240L252380 87550L251610 89410L250590 90910L250090 90910L250090 86800L248560 84000L233550 72610L221600 68130L219820 68130L215750 69060L214730 69250L212180 70930L210400 71120L207860 70370L206840 70740L205320 72050L205060 72240L203790 73170L203030 73540L202260 73360L200990 72800L200230 72610L198960 72980L196410 73920L193620 74660L192850 75780L192090 77280L191070 78770L185980 81010L184460 81010L183190 80640L182170 79710L181410 78020L180390 75410L180130 74850L179880 74850L179880 74660L179620 74290L179120 74290L178860 74480L178860 75040L178860 75600L179880 76530L180640 80270L181410 81760L180130 83070L178860 84560L177840 86430L177080 88670L176320 91650L176320 93900L177590 98560L176060 98560L174280 98940L173270 99870L172760 101550L173270 103230L174280 103980L177590 103790L177590 104540L176830 106410L176830 106780L176060 106970L175550 107340L175300 107900L174790 110510L173770 111260L172760 110890L171740 109950L171230 112380L169700 113310L168180 113690L167410 114810L166910 116670L166140 118910L165890 121530L166400 124330L165380 124890L162330 125640L161310 125820L159780 125450L158260 124700L157240 124700L156220 125820L153680 123400L149610 118350L144780 114060L144010 113690L143500 113870L141720 114810L140960 114990L140450 115370L139690 116490L138930 116670L138160 116490L137400 116110L136380 114990L136640 114620L136890 113690L135360 113130L133580 112010L132820 110330L133840 108270L131290 108460L130530 108270L129510 107710L129260 106970L129000 106030L128240 104910L127730 103040L128240 101550L129260 100060L130020 98560L128750 99120L127990 99120L127220 98560L126970 99310L126970 99680L126210 100430L125700 100800L124680 100800L124680 101550L125700 102110L125950 103230L125700 104540L125190 105280L124170 105660L120860 105280L122140 106970L125950 106410L127730 107530L125190 108270L125190 109020L125700 108830L127220 109020L126720 109950L128500 109950L128500 110510L127730 110890L127220 111450L127220 112190L127730 112940L127730 113690L126210 113500L125440 112190L124680 110700L123410 109950L117560 108270L114250 108650L109160 111820L106370 112940L94660 113690L94660 113870L94410 114060L94160 114430L93650 114430L92880 111450L92380 111260L91870 111630L91360 112010L91100 112190L89580 112190L88050 112750L87290 113690L88050 114990L88050 115930L87540 116300L86780 117050L86270 117790L86020 118540L86020 119290L86520 120040L86520 120410L85510 122460L85510 123210L84740 123960L81180 123400L79910 123960L78640 125450L77370 126200L74310 127320L73550 128250L70500 133290L69740 131980L69230 128060L68210 127320L66940 127690L66940 128620L66940 129930L66170 131050L66170 131800L66430 132170L67700 133290L66940 133290L66430 133480L65670 134040L64900 134600L64900 135350L64900 136280L64650 137210L64140 137590L61850 138710L62610 138520L63120 138710L64140 139450L64390 139450L65410 139270L65670 139450L65920 139830L66170 141320L66430 141690L66680 142630L65670 144680L63630 147670L63120 147860L61600 147480L60830 147670L60320 148040L58290 150660L57270 153270L57270 153830L56510 153460L55750 152900L53710 150660L53460 150100L52950 149350L52690 147860L52950 146920L52690 146170L52180 145050L50400 141880L49130 140390L47860 139450L43540 137400L40740 136840L38190 135350L37180 134790L35650 134970L33870 135530L32340 136650L32340 138330L32850 140200L32090 141690L30820 142630L29800 143190L27000 144120L23440 144490L20900 143560L20130 140200L20900 140010L21410 139830L21660 139450L21660 138710L21410 138150L21150 137770L21150 137960L20640 135720L20640 134600L20900 134040L20900 133670L22170 131420L22930 131050L24970 130300L29550 127690L31830 126760L34630 125080L36160 124890L38190 127130L39720 127880L41250 126940L42260 125260L42770 124140L42770 123210L43280 122650L45830 122650L48370 121160L56510 112750L59050 110890L60070 110510L60320 109950L60320 108650L60320 107340L59820 105100L60580 104540L61600 104540L62100 104540L67190 101920L67190 101180L67960 99680L68460 95390L68720 93150L68970 91280L69480 89790L71010 88670L72530 88670L73040 88290L73810 87170L74310 87170L74820 87730L75080 89040L75330 90530L75330 91840L75840 91470L76100 91280L76350 90910L77620 91650L80420 91840L81690 92400L80930 90910L79660 90160L77370 89410L76100 87920L76350 86990L76600 86050L76350 84750L76350 84190L78130 84560L83220 84190L85250 83440L86520 81760L87290 79890L88310 78020L88050 76340L88310 75220L88810 74660L89830 74850L94920 70560L95680 69250L96190 67380L97460 65890L100520 63650L102550 59730L102040 50020L102800 45350L103310 44420L104330 41800L104080 40870L103820 39380L103820 37690L104080 37130L110440 37130L111200 37320L112720 38440L113230 38630L117560 39000L118830 38630L119850 37880L124680 32650L125190 31910L125440 31350L125950 30600L126720 30230L126210 29110L125440 26120L125190 25370L124930 24620L123660 22940L123150 22010L125700 22200L126210 22010L126720 20700L126460 19580L125950 18650L125190 18090L125190 17340L130530 15290L143500 14170L146050 13050L147570 12860L152660 12860L154190 12680L156480 11370L157750 11370L166650 13610L172500 13420L181410 15480L183440 17530L184710 18090L192850 17720L197940 16220L200480 15850L205060 16040L207860 15660L209900 14360L210400 15100L209390 16600L210400 17340L211680 15100L211930 14360L211930 12860L211930 12120L211680 11550L211420 10620L211420 6330L211170 4270L210400 2970L211680 3340L212440 3150L212690 2030L212950 350L213460 -580L214470 -1700L214730 -2640L213710 -3760L215240 -5440L217530 -4880L220070 -7490L220470 -8000L200510 -8000L200230 -6740L198960 -5250L197690 -5620L196410 -5810L191580 -3760L173770 -5440L172500 -6180L171230 -7860L171130 -8000ZM94410 18460L94410 19210L94410 20520L93900 21080L93390 20140L93390 18650L93650 17340L93900 17160L94160 17900L94410 18460Z";
+  const B={w:-6.0,n:51.35}, lat0=50.6, KX=111320*Math.cos(lat0*Math.PI/180), KY=110574;
+  const P=(lon,lat)=>({x:(lon-B.w)*KX,y:(B.n-lat)*KY});
+  const FULL={x:0,y:0,w:268500,h:165860};
+  const ASPECT=640/1000;
+
+  // towns: name, lon, lat, urban radius (m), postcode area, major
+  const TOWNS=[
+    ["Exeter",-3.533,50.718,3600,"EX",1],["Plymouth",-4.143,50.375,5200,"PL",1],["Torquay",-3.526,50.462,2600,"TQ",1],
+    ["Paignton",-3.567,50.435,1800,"TQ",0],["Exmouth",-3.413,50.620,1800,"EX",0],["Newton Abbot",-3.607,50.529,1600,"TQ",0],
+    ["Barnstaple",-4.058,51.080,1900,"EX",1],["Bideford",-4.208,51.016,1300,"EX",0],["Ilfracombe",-4.120,51.208,1100,"EX",0],
+    ["Tiverton",-3.489,50.902,1500,"EX",0],["Okehampton",-4.004,50.739,1000,"EX",0],["Tavistock",-4.144,50.550,1100,"PL",0],
+    ["Honiton",-3.188,50.800,1000,"EX",0],["Totnes",-3.684,50.432,900,"TQ",0],["Dartmouth",-3.580,50.351,800,"TQ",0],["Kingsbridge",-3.777,50.284,800,"TQ",0],
+    ["Truro",-5.051,50.263,1700,"TR",1],["Falmouth",-5.071,50.153,1500,"TR",0],["Penzance",-5.537,50.119,1400,"TR",1],["St Ives",-5.480,50.211,900,"TR",0],
+    ["Newquay",-5.073,50.416,1600,"TR",1],["Bodmin",-4.718,50.471,1300,"PL",0],["St Austell",-4.792,50.340,1700,"PL",0],["Launceston",-4.360,50.637,1000,"PL",0],
+    ["Bude",-4.543,50.830,1000,"EX",0],["Camborne",-5.297,50.213,1400,"TR",0],["Redruth",-5.226,50.233,1200,"TR",0],["Liskeard",-4.466,50.455,1100,"PL",0]
+  ].map(t=>({name:t[0],...P(t[1],t[2]),r:t[3],pc:t[4],major:t[5]}));
+  const townBy=n=>TOWNS.find(t=>t.name===n);
+
+  const MOORS=[["Dartmoor",-3.90,50.57,17000,15000],["Exmoor",-3.66,51.13,19000,8000],["Bodmin Moor",-4.59,50.56,9000,7500]].map(m=>({name:m[0],...P(m[1],m[2]),rx:m[3],ry:m[4]}));
+  const ROADS=[
+    ["M5",[[-3.47,50.70],[-3.40,50.80],[-3.33,50.93],[-3.17,51.03],[-3.02,51.18],[-2.95,51.36]]],
+    ["A30",[[-3.10,50.83],[-3.188,50.80],[-3.40,50.73],[-3.533,50.718],[-3.80,50.72],[-4.004,50.739],[-4.20,50.70],[-4.36,50.637],[-4.55,50.56],[-4.718,50.471],[-4.95,50.38],[-5.10,50.30],[-5.226,50.233],[-5.297,50.213],[-5.537,50.119]]],
+    ["A38",[[-3.533,50.70],[-3.65,50.60],[-3.78,50.47],[-3.95,50.41],[-4.143,50.39],[-4.30,50.42],[-4.466,50.455],[-4.718,50.471]]],
+    ["A380",[[-3.533,50.70],[-3.60,50.60],[-3.607,50.529],[-3.55,50.48],[-3.526,50.462]]],
+    ["A361",[[-3.40,50.93],[-3.489,50.902],[-3.75,50.98],[-4.058,51.080],[-4.120,51.208]]],
+    ["A39",[[-4.058,51.080],[-4.208,51.016],[-4.45,50.95],[-4.543,50.830],[-4.70,50.65],[-4.718,50.471]]],
+    ["A386",[[-4.004,50.739],[-4.144,50.550],[-4.143,50.375]]]
+  ].map(r=>({name:r[0],pts:r[1].map(p=>P(p[0],p[1]))}));
+  const TAMAR=[[-4.17,50.35],[-4.21,50.42],[-4.22,50.52],[-4.30,50.60],[-4.34,50.645],[-4.40,50.75],[-4.47,50.85],[-4.53,50.95]].map(p=>P(p[0],p[1]));
+
+  const today=new Date(2026,9,28);
+  const daysAgo=n=>{const d=new Date(today);d.setDate(d.getDate()-n);return d;};
+  const fmtDate=d=>d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  let leakNo=67;
+  const caseId=n=>"CASE-"+String(123123400+n).padStart(11,"0");
+  function L(town,dx,dy,where,status,age,reports,repairedAgo){
+    const t=townBy(town)||MOORS.find(m=>m.name===town);
+    const o={id:caseId(leakNo++),x:t.x+dx,y:t.y+dy,where,status,first:daysAgo(age),reports};
+    if(status==="repaired")o.repaired=daysAgo(repairedAgo);
+    return o;
+  }
+  const S={
+    view:{x:0,y:0,w:6000}, pin:null, selected:null, step:"locate",
+    radius:200, windowDays:60,
+    where:null,flow:null,supply:null,dur:null,desc:"",landmark:"",name:"",phone:"",email:"",photos:[],errors:{},joinEmail:"",joinPhone:"",joinName:"",useManual:false,manual:{town:"",street:"",pc:"",w3w:"",near:""},lastRef:null,joined:null,nextRef:4821,
+    leaks:[
+      L("Exeter",300,-150,"Road","investigating",12,3),L("Exeter",80,120,"Road","scheduled",5,5),L("Exeter",-600,400,"Pavement","repaired",19,4,6),
+      L("Exeter",1100,-700,"Verge","investigating",2,1),L("Exeter",-1500,-900,"Road","repaired",55,2,41),L("Exeter",-200,-1300,"Road","repaired",95,6,78),
+      L("Plymouth",200,100,"Road","investigating",3,2),L("Plymouth",-800,300,"Pavement","scheduled",8,4),L("Plymouth",1500,-1200,"Road","repaired",30,3,20),L("Plymouth",400,-2000,"Verge","investigating",1,1),
+      L("Torquay",150,-200,"Road","investigating",4,2),L("Torquay",-500,300,"Pavement","repaired",14,2,9),L("Paignton",100,150,"Road","scheduled",6,3),
+      L("Newton Abbot",0,0,"Road","investigating",2,1),L("Exmouth",200,-100,"Pavement","repaired",40,2,30),
+      L("Barnstaple",-200,100,"Road","investigating",7,3),L("Barnstaple",600,-300,"Verge","repaired",22,1,15),L("Tiverton",100,0,"Road","investigating",1,1),
+      L("Okehampton",1800,-400,"Verge","investigating",3,2),L("Dartmoor",-2000,1000,"Field","investigating",10,1),
+      L("Truro",150,-100,"Road","scheduled",4,2),L("Truro",-400,300,"Pavement","investigating",1,1),L("Newquay",300,100,"Road","repaired",18,2,12),
+      L("Penzance",-100,200,"Road","investigating",6,4),L("St Austell",200,0,"Road","investigating",2,1),L("Bodmin",0,-300,"Road","repaired",60,2,50),
+      L("Falmouth",100,-100,"Pavement","investigating",3,2),L("Bude",200,100,"Road","investigating",5,1)
+    ]
+  };
+  const DESC=["Water bubbling up through a crack in the road near the traffic lights.", "Steady stream running along the kerb into the drain.", "Pavement slabs lifting, with water seeping between them.", "Grass verge waterlogged and soft, with a small pool forming.", "Water coming up around a metal cover in the road.", "Large puddle that never dries, even in dry weather.", "Clear water flowing out from under the tarmac at the junction.", "Water spraying from a small hole next to the bus stop.", "Road surface sinking slightly, with water running downhill.", "Constant trickle from the bank beside the footpath.", "Water running down the hill from the middle of the road.", "Wet patch outside the shops that spreads across the pavement.", "Water pooling over a small cover near the seafront.", "Bubbling water and a hissing sound from a cover in the road.", "Damp, cracked pavement with water coming through.", "Fast flow across the road; cars are splashing through it.", "Boggy verge with water seeping into the ditch.", "Water rising up between the road and the kerb.", "Water running from the verge onto the A30 slip road.", "Spring-like flow in a field where there's normally no stream.", "Water coming out of the road near the roundabout.", "Puddle on the pavement that refills after being swept.", "Water running down the street towards the beach.", "Strong flow from a cracked area of road, getting worse.", "Clean water trickling from a cover at the side of the road.", "Wet road surface in a dry spell, outside the school.", "Water seeping from the base of a wall onto the pavement.", "Water flowing from the road edge into the gutter all day."];
+  S.leaks.forEach((l,i)=>{l.desc=DESC[i]||"";});
+  // start zoomed on Exeter with a pin dropped
+  const ex=townBy("Exeter"); S.view={x:ex.x-3200,y:ex.y-3200*ASPECT,w:6400}; S.pin={x:ex.x+180,y:ex.y-40};
+
+  // ---------- helpers ----------
+  const dist=(a,b)=>Math.round(Math.hypot(a.x-b.x,a.y-b.y));
+  function nearestTown(p){let b=null,bd=1e12;for(const t of TOWNS){const d=Math.hypot(p.x-t.x,p.y-t.y);if(d<bd){bd=d;b=t;}}return {t:b,d:bd};}
+  function onMoor(p){return MOORS.find(m=>((p.x-m.x)/m.rx)**2+((p.y-m.y)/m.ry)**2<=1);}
+  function placeName(p){const m=onMoor(p);if(m)return m.name;const n=nearestTown(p);return n.d<n.t.r+1500?n.t.name:"near "+n.t.name;}
+  const WORDS="river,stone,amber,willow,harbour,copper,meadow,lantern,orchard,pebble,bridge,maple,quiet,silver,thistle,cobble,heron,granite,clover,beacon,marsh,oak,chalk,saffron,fern,pillar,brook,tide,cedar,linen,ember,pond,garnet,hazel,quarry,slate,acorn,canal,dune,flint,glade,hollow,ivy,jasper,kettle,ledge,moss,nettle,otter,plover,quill,rowan,sorrel,tansy,umber,vale,wren,yarrow,zinc,basin,cairn,delta,estuary".split(",");
+  function locCode(p){const gx=Math.floor(p.x/3),gy=Math.floor(p.y/3),n=WORDS.length;return WORDS[(gx*7+gy*13)%n]+"."+WORDS[(gx*31+gy*3+5)%n]+"."+WORDS[(gx+gy*17+11)%n];}
+  function toOSGB(lat,lon){
+    const d=Math.PI/180;let φ=lat*d,λ=lon*d;
+    let a=6378137,b=6356752.314245,e2=(a*a-b*b)/(a*a);
+    let ν=a/Math.sqrt(1-e2*Math.sin(φ)**2);
+    let x=ν*Math.cos(φ)*Math.cos(λ),y=ν*Math.cos(φ)*Math.sin(λ),z=ν*(1-e2)*Math.sin(φ);
+    const tx=-446.448,ty=125.157,tz=-542.060,s=20.4894e-6+1,sec=d/3600,rx=-0.1502*sec,ry=-0.2470*sec,rz=-0.8421*sec;
+    const x2=tx+x*s-y*rz+z*ry,y2=ty+x*rz+y*s-z*rx,z2=tz-x*ry+y*rx+z*s;
+    a=6377563.396;b=6356256.909;e2=(a*a-b*b)/(a*a);
+    const p=Math.hypot(x2,y2);φ=Math.atan2(z2,p*(1-e2));
+    for(let i=0;i<10;i++){ν=a/Math.sqrt(1-e2*Math.sin(φ)**2);φ=Math.atan2(z2+e2*ν*Math.sin(φ),p);}
+    λ=Math.atan2(y2,x2);
+    const F0=0.9996012717,φ0=49*d,λ0=-2*d,N0=-100000,E0=400000,n=(a-b)/(a+b);
+    const sφ=Math.sin(φ),cφ=Math.cos(φ),t=Math.tan(φ);
+    ν=a*F0/Math.sqrt(1-e2*sφ*sφ);const ρ=a*F0*(1-e2)/Math.pow(1-e2*sφ*sφ,1.5),η2=ν/ρ-1;
+    const dφ=φ-φ0,sφ0=φ+φ0;
+    const M=b*F0*((1+n+1.25*n*n+1.25*n**3)*dφ-(3*n+3*n*n+21/8*n**3)*Math.sin(dφ)*Math.cos(sφ0)+(15/8*n*n+15/8*n**3)*Math.sin(2*dφ)*Math.cos(2*sφ0)-35/24*n**3*Math.sin(3*dφ)*Math.cos(3*sφ0));
+    const I=M+N0,II=ν/2*sφ*cφ,III=ν/24*sφ*cφ**3*(5-t*t+9*η2),IIIA=ν/720*sφ*cφ**5*(61-58*t*t+t**4);
+    const IV=ν*cφ,V=ν/6*cφ**3*(ν/ρ-t*t),VI=ν/120*cφ**5*(5-18*t*t+t**4+14*η2-58*t*t*η2);
+    const L=λ-λ0;
+    const N=I+II*L*L+III*L**4+IIIA*L**6,E=E0+IV*L+V*L**3+VI*L**5;
+    return {E:Math.round(E),N:Math.round(N)};
+  }
+  function gridRef(E,N){
+    const e100k=Math.floor(E/100000),n100k=Math.floor(N/100000);
+    let l1=(19-n100k)-(19-n100k)%5+Math.floor((e100k+10)/5),l2=(19-n100k)*5%25+e100k%5;
+    if(l1>7)l1++;if(l2>7)l2++;
+    const L=String.fromCharCode(65+l1)+String.fromCharCode(65+l2);
+    const e=String(E%100000).padStart(5,"0"),n=String(N%100000).padStart(5,"0");
+    return L+" "+e+" "+n;
+  }
+  
+  const toLatLon=p=>({lat:B.n-p.y/KY,lon:p.x/KX+B.w});
+  function latLonStr(p){const ll=toLatLon(p);return ll.lat.toFixed(6)+", "+ll.lon.toFixed(6);}
+  function osRef(p){const ll=toLatLon(p),g=toOSGB(ll.lat,ll.lon);return {ref:gridRef(g.E,g.N),E:g.E,N:g.N};}
+  function inSea(p){return !landTest(p);}
+  const statusText=l=>l.pending?"Reported, awaiting review":l.status==="repaired"?"Repaired":l.status==="scheduled"?"Repair scheduled":"Under investigation";
+  const leakLabel=l=>l.where+" leak · "+placeName(l);
+  const visible=()=>S.leaks.filter(l=>l.status!=="repaired"||(today-l.repaired)/864e5<=S.windowDays);
+  const nearby=()=>S.pin?visible().map(l=>({l,d:dist(l,S.pin)})).filter(o=>o.d<=S.radius).sort((a,b)=>a.d-b.d):[];
+  const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+  // ---------- svg ----------
+  const NS="http://www.w3.org/2000/svg", svg=document.getElementById("map");
+  const el=(tag,a,p)=>{const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;};
+  const ptsStr=pts=>pts.map(p=>p.x.toFixed(0)+","+p.y.toFixed(0)).join(" ");
+  const base=el("g",{},svg);
+  el("rect",{x:-20000,y:-20000,width:310000,height:210000,fill:"var(--sea)"},base);
+  const landPath=el("path",{d:LAND,fill:"var(--land)",stroke:"var(--coast)","stroke-width":1.2,"vector-effect":"non-scaling-stroke","stroke-linejoin":"round"},base);
+  for(const m of MOORS) el("ellipse",{cx:m.x,cy:m.y,rx:m.rx,ry:m.ry,fill:"var(--moor)"},base);
+  el("polyline",{points:ptsStr(TAMAR),fill:"none",stroke:"var(--border)","stroke-width":1.5,"stroke-dasharray":"6 5","vector-effect":"non-scaling-stroke"},base);
+  for(const t of TOWNS) el("circle",{cx:t.x,cy:t.y,r:t.r,fill:"var(--town)","fill-opacity":0.75},base);
+  for(const r of ROADS){
+    el("polyline",{points:ptsStr(r.pts),fill:"none",stroke:"var(--road)","stroke-width":r.name==="M5"?3.5:2.5,"stroke-linecap":"round","stroke-linejoin":"round","vector-effect":"non-scaling-stroke"},base);
+  }
+  const labels=el("g",{},svg), radiusG=el("g",{},svg), markers=el("g",{},svg), pinG=el("g",{},svg);
+  const landTestCanvas=document.createElement("canvas"); let landCtx=null;
+  function landTest(p){try{if(!landCtx){landCtx=landTestCanvas.getContext("2d");}if(!window.__lp)window.__lp=new Path2D(LAND);return landCtx.isPointInPath(window.__lp,p.x,p.y);}catch(e){return true;}}
+
+  function mpp(){return S.view.w/(svg.clientWidth||1000);} // metres per screen pixel
+  function setViewBox(){const h=S.view.w*ASPECT;svg.setAttribute("viewBox",`${S.view.x} ${S.view.y} ${S.view.w} ${h}`);}
+  function clampView(){
+    S.view.w=Math.max(1500,Math.min(FULL.w,S.view.w));
+    const h=S.view.w*ASPECT;
+    S.view.x=Math.max(FULL.x-S.view.w*0.25,Math.min(FULL.w-S.view.w*0.75,S.view.x));
+    S.view.y=Math.max(FULL.y-h*0.25,Math.min(FULL.h-h*0.75,S.view.y));
+  }
+  function text(g,x,y,str,size,weight,fill,anchor){
+    const k=mpp();
+    const t=el("text",{x,y,"font-size":size*k,"font-weight":weight,fill,"text-anchor":anchor||"middle","font-family":"IBM Plex Sans, Segoe UI, sans-serif",stroke:"var(--halo)","stroke-width":3*k,"paint-order":"stroke","stroke-linejoin":"round"},g);
+    t.textContent=str;return t;
+  }
+  const zoomedOut=()=>S.view.w>30000;
+  function drawLabels(){
+    labels.innerHTML="";const k=mpp(),w=S.view.w;
+    for(const m of MOORS) if(w>12000) text(labels,m.x,m.y,m.name,13,600,"var(--moor-ink)");
+    if(w>60000){text(labels,P(-4.85,50.52).x,P(-4.85,50.52).y,"CORNWALL",13,700,"var(--map-label-soft)");text(labels,P(-3.65,50.82).x,P(-3.65,50.82).y,"DEVON",13,700,"var(--map-label-soft)");}
+    for(const t of TOWNS){
+      if(w>90000&&!t.major)continue;
+      if(w>45000&&w<=90000&&!t.major&&t.r<1300)continue;
+      if(w<12000){text(labels,t.x,t.y-Math.min(t.r*0.6,S.view.w*ASPECT*0.35),t.name,15,700,"var(--map-label)");continue;}
+      el("circle",{cx:t.x,cy:t.y,r:3.5*k,fill:"var(--map-label)"},labels);
+      text(labels,t.x,t.y-8*k,t.name,t.major?13:12,t.major?700:600,"var(--map-label)");
+    }
+    if(w<120000){for(const r of ROADS){const mid=r.pts[Math.floor(r.pts.length/2)];const g=el("g",{},labels);
+      el("rect",{x:mid.x-14*k,y:mid.y-9*k,width:28*k,height:16*k,rx:3*k,fill:"var(--road)"},g);
+      const t=el("text",{x:mid.x,y:mid.y+3.5*k,"font-size":10.5*k,"font-weight":700,"text-anchor":"middle",fill:"#1c1a12","font-family":"IBM Plex Sans, sans-serif"},g);t.textContent=r.name;}}
+  }
+  function drawMarkers(){
+    markers.innerHTML="";radiusG.innerHTML="";pinG.innerHTML="";const k=mpp();
+    if(S.pin&&!zoomedOut()){
+      el("circle",{cx:S.pin.x,cy:S.pin.y,r:S.radius,fill:"var(--accent)","fill-opacity":0.08,stroke:"var(--accent)","stroke-opacity":0.5,"stroke-dasharray":"6 6","stroke-width":1.5,"vector-effect":"non-scaling-stroke"},radiusG);
+    }
+    const vis=visible();
+    if(zoomedOut()){
+      // cluster by nearest town (or moor)
+      const groups=new Map();
+      for(const l of vis){const m=onMoor(l);const key=m?m.name:nearestTown(l).t.name;const c=m||townBy(key);if(!groups.has(key))groups.set(key,{c,n:0,open:0});const g=groups.get(key);g.n++;if(l.status!=="repaired")g.open++;}
+      for(const [key,g] of groups){
+        const r=(g.n>1?15:12)*k;
+        const gg=el("g",{class:"marker",tabindex:0,role:"button","aria-label":`${g.n} ${g.n===1?"leak":"leaks"} near ${key}. Zoom in`,"data-zoom":key,style:"cursor:pointer"},markers);
+        el("circle",{cx:g.c.x+8*k,cy:g.c.y+10*k,r,fill:g.open?"var(--open)":"var(--fixed)",stroke:"#fff","stroke-width":2.5*k},gg);
+        const t=el("text",{x:g.c.x+8*k,y:g.c.y+10*k+4.5*k,"font-size":12.5*k,"font-weight":700,"text-anchor":"middle",fill:"#fff","font-family":"IBM Plex Sans, sans-serif"},gg);t.textContent=g.n;
+      }
+    } else {
+      const near=new Set(nearby().map(o=>o.l.id));
+      for(const l of vis){
+        const fixed=l.status==="repaired",far=S.pin&&!near.has(l.id);
+        const g=el("g",{class:"marker",tabindex:0,role:"button","aria-label":`${leakLabel(l)}, ${statusText(l)}`,"data-leak":l.id,style:"cursor:pointer",opacity:far?0.55:1},markers);
+        if(S.selected===l.id)el("circle",{cx:l.x,cy:l.y,r:22*k,fill:"none",stroke:"var(--accent)","stroke-width":3*k},g);
+        el("circle",{cx:l.x,cy:l.y,r:14*k,fill:fixed?"var(--fixed)":"var(--open)",stroke:"#fff","stroke-width":2.5*k},g);
+        if(fixed)el("path",{d:`M${l.x-6*k} ${l.y}l${4.5*k} ${4.5*k}l${8*k} ${-9*k}`,fill:"none",stroke:"#fff","stroke-width":2.6*k,"stroke-linecap":"round","stroke-linejoin":"round"},g);
+        else el("path",{d:`M${l.x} ${l.y-8*k}c0 0 ${-5.5*k} ${6.5*k} ${-5.5*k} ${10*k}a${5.5*k} ${5.5*k} 0 0 0 ${11*k} 0c0 ${-3.5*k} ${-5.5*k} ${-10*k} ${-5.5*k} ${-10*k}z`,fill:"#fff"},g);
+      }
+    }
+    if(S.pin&&!zoomedOut()){
+      el("circle",{class:"pulse",cx:S.pin.x,cy:S.pin.y,r:12*k,fill:"var(--accent)"},pinG);
+      el("path",{d:`M${S.pin.x} ${S.pin.y}c${-11*k} ${-14*k} ${-18*k} ${-21*k} ${-18*k} ${-30*k}a${18*k} ${18*k} 0 0 1 ${36*k} 0c0 ${9*k} ${-7*k} ${16*k} ${-18*k} ${30*k}z`,fill:"var(--accent)",stroke:"#fff","stroke-width":2.5*k},pinG);
+      el("circle",{cx:S.pin.x,cy:S.pin.y-30*k,r:6.5*k,fill:"#fff"},pinG);
+    }
+  }
+  function drawScale(){
+    const k=mpp(), steps=[100,200,500,1000,2000,5000,10000,20000,50000,100000];
+    let s=steps[0];for(const v of steps){if(v/k<=140)s=v;}
+    document.getElementById("scalebar").style.width=Math.round(s/k)+"px";
+    document.getElementById("scaletxt").textContent=s>=1000?(s/1000)+" km":s+" m";
+    document.getElementById("zoomhint").hidden=!zoomedOut();
+  }
+  function drawMap(){clampView();setViewBox();drawLabels();drawMarkers();drawScale();}
+
+  // ---------- interaction ----------
+  function toMap(cx,cy){const r=svg.getBoundingClientRect();return {x:S.view.x+(cx-r.left)/r.width*S.view.w,y:S.view.y+(cy-r.top)/r.height*S.view.w*ASPECT};}
+  function zoomAt(pt,f){const nw=Math.max(1500,Math.min(FULL.w,S.view.w*f));const r=nw/S.view.w;S.view.x=pt.x-(pt.x-S.view.x)*r;S.view.y=pt.y-(pt.y-S.view.y)*r;S.view.w=nw;drawMap();}
+  function centerOn(p,w){S.view.w=w;S.view.x=p.x-w/2;S.view.y=p.y-w*ASPECT/2;drawMap();}
+  const ptrs=new Map();let drag=null,pinch=null,moved=false;
+  svg.addEventListener("pointerdown",e=>{svg.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});moved=false;
+    if(ptrs.size===1)drag={x:e.clientX,y:e.clientY,vx:S.view.x,vy:S.view.y};
+    if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),w:S.view.w,mid:toMap((a.x+b.x)/2,(a.y+b.y)/2)};drag=null;}});
+  svg.addEventListener("pointermove",e=>{if(!ptrs.has(e.pointerId))return;ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const r=svg.getBoundingClientRect();
+    if(pinch&&ptrs.size===2){const [a,b]=[...ptrs.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(d>0){const nw=pinch.w*pinch.d/d;zoomAt(pinch.mid,nw/S.view.w);}moved=true;return;}
+    if(drag){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>5){moved=true;svg.classList.add("grabbing");}
+      if(moved){S.view.x=drag.vx-dx/r.width*S.view.w;S.view.y=drag.vy-dy/r.height*S.view.w*ASPECT;drawMap();}}});
+  function endPtr(e){
+    const wasMoved=moved;ptrs.delete(e.pointerId);svg.classList.remove("grabbing");
+    if(ptrs.size<2)pinch=null;
+    if(ptrs.size===0){drag=null;if(!wasMoved&&e.type==="pointerup")tap(e);}
+  }
+  svg.addEventListener("pointerup",endPtr);svg.addEventListener("pointercancel",endPtr);
+  svg.addEventListener("wheel",e=>{e.preventDefault();zoomAt(toMap(e.clientX,e.clientY),e.deltaY>0?1.25:0.8);},{passive:false});
+  function tap(e){
+    const target=document.elementFromPoint(e.clientX,e.clientY);
+    const m=target&&target.closest&&target.closest(".marker");
+    if(m&&m.dataset.zoom){const c=townBy(m.dataset.zoom)||MOORS.find(x=>x.name===m.dataset.zoom);centerOn(c,8000);return;}
+    if(m&&m.dataset.leak){selectLeak(m.dataset.leak);return;}
+    const p=toMap(e.clientX,e.clientY);
+    if(zoomedOut()){centerOn(p,8000);return;}
+    if(S.step==="done"||S.step==="joined")return;
+    if(inSea(p)){flash("That spot is in the sea. Drop the pin on land.");return;}
+    S.pin={x:Math.round(p.x),y:Math.round(p.y)};S.selected=null;if(S.step!=="details")S.step="locate";render();
+  }
+  svg.addEventListener("keydown",e=>{const m=e.target.closest(".marker");if(!m||(e.key!=="Enter"&&e.key!==" "))return;e.preventDefault();
+    if(m.dataset.zoom){const c=townBy(m.dataset.zoom)||MOORS.find(x=>x.name===m.dataset.zoom);centerOn(c,8000);}else selectLeak(m.dataset.leak);});
+  let flashMsg="";function flash(m){flashMsg=m;renderPanel();flashMsg="";}
+  document.getElementById("zin").addEventListener("click",()=>zoomAt({x:S.view.x+S.view.w/2,y:S.view.y+S.view.w*ASPECT/2},0.6));
+  document.getElementById("zout").addEventListener("click",()=>zoomAt({x:S.view.x+S.view.w/2,y:S.view.y+S.view.w*ASPECT/2},1.6));
+  document.getElementById("zall").addEventListener("click",()=>{S.view={x:0,y:0,w:FULL.w};drawMap();});
+  const jump=document.getElementById("jump");
+  for(const t of [...TOWNS].sort((a,b)=>a.name.localeCompare(b.name))){const o=document.createElement("option");o.value=t.name;o.textContent=t.name;jump.appendChild(o);}
+  jump.addEventListener("change",()=>{const t=townBy(jump.value);if(t)centerOn(t,Math.max(5000,t.r*3));});
+  document.getElementById("use-loc").addEventListener("click",()=>{const p=townBy("Plymouth");const sp={x:p.x+330,y:p.y+60};if(S.step==="done"||S.step==="joined")resetForm();S.pin=sp;S.selected=null;S.step="locate";centerOn(sp,4000);render();});
+  function selectLeak(id){if(S.step==="done"||S.step==="joined")return;S.selected=id;S.step="leak";const l=S.leaks.find(x=>x.id===id);if(!S.pin||dist(l,S.pin)>S.radius)S.pin={x:l.x+60,y:l.y+40};render();}
+  new ResizeObserver(()=>drawMap()).observe(svg);
+
+  // ---------- panel ----------
+  const panel=document.getElementById("panel");
+  function locFacts(){
+    const n=nearestTown(S.pin);
+    return `<div class="facts">
+      <div><div class="k">Area</div><div class="v">${esc(placeName(S.pin))}</div></div>
+      <div><div class="k">Postcode area</div><div class="v">${n.t.pc} <span class="meta">(full postcode in live version)</span></div></div>
+      <div class="wide"><div class="k">Map coordinates (ready for Salesforce Maps)</div><div class="v gridrow"><span class="mono" id="gridref">${latLonStr(S.pin)}</span><button type="button" class="btn small" id="copy-grid">Copy</button></div><div class="meta">OS grid reference ${osRef(S.pin).ref}</div></div>
+      <div class="wide"><div class="k">Location code (optional what3words in live version)</div><div class="v mono">///${locCode(S.pin)}</div></div></div>`;
+  }
+  function leakCard(o){const l=o.l,fixed=l.status==="repaired";
+    const when=fixed?`Repaired ${fmtDate(l.repaired)} · ${Math.round((today-l.repaired)/864e5)} days ago`:`First reported ${fmtDate(l.first)} · ${l.reports} ${l.reports===1?"report":"reports"}`;
+    return `<button type="button" class="leakcard" data-pick="${l.id}"><span class="lc-top"><span class="lc-title">${esc(leakLabel(l))}</span><span class="dist">${o.d} m</span></span><span class="desc">“${esc(l.desc)}”</span><span class="meta">${when}</span><span class="status ${fixed?"st-fixed":"st-open"}">${statusText(l)}</span></button>`;}
+  function renderLocate(){
+    let h=`<div class="stepper">Step 1 of 2 · Where is the leak?</div><h2>Drop the pin on the exact spot</h2>`;
+    if(flashMsg)h+=`<div class="callout">${esc(flashMsg)}</div>`;
+    if(!S.pin){panel.innerHTML=h+`<p>Find the area on the map, zoom in, then click where the leak is.</p>`+manualLink();return;}
+    h+=locFacts();
+    const n=nearby();
+    if(n.length)h+=`<div class="callout"><strong>${n.length} known ${n.length===1?"leak":"leaks"} within ${S.radius} m of your pin.</strong> If yours is one of these, pick it to join that report and get updates.</div><div class="nearby">${n.map(leakCard).join("")}</div>`;
+    else h+=`<div class="callout info">No leaks reported within ${S.radius} m of your pin.</div>`;
+    h+=`<div class="actions"><button type="button" class="btn ${n.length?"":"primary"}" id="go-new">${n.length?"No, this is a new leak":"Continue"}</button></div>`;
+    h+=manualLink();
+    panel.innerHTML=h;
+  }
+  function manualLink(){return `<p class="meta">Can't use the map? <button type="button" class="linkbtn" id="go-manual">Enter the address instead</button></p>`;}
+  function renderManual(){
+    const m=S.manual;
+    let h=`<div class="stepper">Step 1 of 2 · Where is the leak?</div><h2>Enter the location</h2>
+      <p class="meta">Give a postcode or what3words address if you have one. If not, the town and street are required so we can find it.</p>
+      <fieldset><label class="lbl" for="m-town">Town or village</label><select id="m-town" class="sel"><option value="">Choose…</option>${[...TOWNS].sort((a,b)=>a.name.localeCompare(b.name)).map(t=>`<option ${m.town===t.name?"selected":""}>${t.name}</option>`).join("")}<option ${m.town==="Other"?"selected":""} value="Other">Somewhere else</option></select>${S.errors.mtown?`<div class="err">${S.errors.mtown}</div>`:""}</fieldset>
+      <fieldset><label class="lbl" for="m-street">Street or road name</label><input type="text" id="m-street" placeholder="e.g. Station Road" value="${esc(m.street)}">${S.errors.mstreet?`<div class="err">${S.errors.mstreet}</div>`:""}</fieldset>
+      <fieldset><label class="lbl" for="m-pc">Postcode <span class="opt">(if you know it)</span></label><input type="text" id="m-pc" autocomplete="postal-code" value="${esc(m.pc)}"></fieldset>
+      <fieldset><label class="lbl" for="m-w3w">what3words address <span class="opt">(if you know it)</span></label><input type="text" id="m-w3w" placeholder="///word.word.word" value="${esc(m.w3w)}"></fieldset>
+      <fieldset><label class="lbl" for="m-near">Nearest house number or landmark <span class="opt">(optional)</span></label><input type="text" id="m-near" placeholder="e.g. opposite number 24, by the post box" value="${esc(m.near)}"></fieldset>
+      <div class="callout info">Without a map pin we can't show leaks already reported nearby. Our team will check for an existing case.</div>
+      <div class="actions"><button type="button" class="btn" id="back">Back to map</button><button type="button" class="btn primary" id="manual-next">Continue</button></div>`;
+    panel.innerHTML=h;
+  }
+  function manualOk(){S.errors={};const m=S.manual;const hasExact=m.pc.trim()||m.w3w.trim();
+    if(!m.town)S.errors.mtown="Choose the town or village.";
+    if(!hasExact&&m.street.trim().length<3)S.errors.mstreet="Enter the street or road name, or give a postcode or what3words address.";
+    if(Object.keys(S.errors).length){render();return false;}return true;}
+  function locLine(){if(S.useManual){const m=S.manual;return esc([m.near,m.street,m.town==="Other"?"":m.town,m.pc].filter(Boolean).join(", "))+(m.w3w.trim()?` · <span class="mono">${esc(m.w3w.trim())}</span>`:"");}
+    return `${esc(placeName(S.pin))} · Coordinates <span class="mono">${latLonStr(S.pin)}</span>`;}
+  function renderLeak(){
+    const l=S.leaks.find(x=>x.id===S.selected);if(!l){S.step="locate";return renderLocate();}
+    const fixed=l.status==="repaired";
+    let h=`<div class="stepper">${l.pending?"Reported leak · awaiting case number":"Known leak · "+l.id}</div><h2>${esc(leakLabel(l))}</h2>
+      <div class="facts"><div><div class="k">Distance from your pin</div><div class="v">${dist(l,S.pin)} m</div></div><div><div class="k">Status</div><div class="v">${statusText(l)}</div></div>
+      <div><div class="k">${fixed?"Repaired":"First reported"}</div><div class="v">${fmtDate(fixed?l.repaired:l.first)}</div></div><div><div class="k">Reports so far</div><div class="v">${l.reports}</div></div></div>
+      <div class="quote"><div class="k">What was reported</div><p>“${esc(l.desc)}”</p>${l.dur?`<div class="meta">Noticed: ${esc(l.dur)}</div>`:""}${l.photos&&l.photos.length?`<div class="photos">${l.photos.map((p,i)=>`<div class="thumb"><img src="${p}" alt="Reported photo ${i+1}"></div>`).join("")}</div>`:""}</div>`;
+    if(fixed)h+=`<p>This leak was repaired ${Math.round((today-l.repaired)/864e5)} days ago. If water is coming out again, tell us and we'll reopen it.</p>
+      <fieldset><label class="lbl" for="join-name">Your name</label><input type="text" id="join-name" autocomplete="name" value="${esc(S.joinName)}">${S.errors.joinName?`<div class="err">${S.errors.joinName}</div>`:""}</fieldset>
+      <fieldset><label class="lbl" for="join-phone">Mobile number for text updates <span class="opt">(optional)</span></label><input type="tel" id="join-phone" autocomplete="tel" placeholder="07700 900123" value="${esc(S.joinPhone)}">${S.errors.joinPhone?`<div class="err">${S.errors.joinPhone}</div>`:""}</fieldset>
+      <fieldset><label class="lbl" for="join-email">Email for updates <span class="opt">(optional)</span></label><input type="email" id="join-email" autocomplete="email" placeholder="you@example.com" value="${esc(S.joinEmail)}">${S.errors.joinEmail?`<div class="err">${S.errors.joinEmail}</div>`:""}</fieldset>
+      <p class="meta">We'll add you to the case as a contact. Give a number, an email, or both, and we'll tell you when it's scheduled and when it's fixed. Leave both blank if you don't want updates.</p>
+      <div class="actions"><button type="button" class="btn warn" id="reopen">It's leaking again</button><button type="button" class="btn" id="back">Back to map</button></div>`;
+    else h+=`<p>Join this report and we'll send you updates instead of you reporting it again.</p>
+      <fieldset><label class="lbl" for="join-name">Your name</label><input type="text" id="join-name" autocomplete="name" value="${esc(S.joinName)}">${S.errors.joinName?`<div class="err">${S.errors.joinName}</div>`:""}</fieldset>
+      <fieldset><label class="lbl" for="join-phone">Mobile number for text updates <span class="opt">(optional)</span></label><input type="tel" id="join-phone" autocomplete="tel" placeholder="07700 900123" value="${esc(S.joinPhone)}">${S.errors.joinPhone?`<div class="err">${S.errors.joinPhone}</div>`:""}</fieldset>
+      <fieldset><label class="lbl" for="join-email">Email for updates <span class="opt">(optional)</span></label><input type="email" id="join-email" autocomplete="email" placeholder="you@example.com" value="${esc(S.joinEmail)}">${S.errors.joinEmail?`<div class="err">${S.errors.joinEmail}</div>`:""}</fieldset>
+      <p class="meta">We'll add you to the case as a contact. Give a number, an email, or both, and we'll tell you when it's scheduled and when it's fixed. Leave both blank if you don't want updates.</p>
+      <div class="actions"><button type="button" class="btn primary" id="join">Yes, that's my leak</button><button type="button" class="btn" id="back">Not this one</button></div>`;
+    panel.innerHTML=h;
+  }
+  function chipGroup(name,legend,opts,val,req){
+    return `<fieldset><legend>${legend} ${req?"":'<span class="opt">(optional)</span>'}</legend><div class="chips">${opts.map((o,i)=>`<label class="chip-opt"><input type="radio" name="${name}" id="${name}-${i}" value="${o}" ${val===o?"checked":""}><span>${o}</span></label>`).join("")}</div>${S.errors[name]?`<div class="err">${S.errors[name]}</div>`:""}</fieldset>`;}
+  function renderDetails(){
+    let h=`<div class="stepper">Step 2 of 2 · About the leak</div><h2>Tell us about the leak</h2><div class="meta">${locLine()}</div>`;
+    h+=chipGroup("where","Where is it?",["Road","Pavement","Verge or field"],S.where,true);
+    h+=chipGroup("flow","How fast is it flowing?",["Major burst","Fast flow","Slow flow","Puddling"],S.flow,true);
+    h+=`<fieldset><label class="lbl" for="c-desc">Describe the leak</label><div class="meta" id="desc-help">What can you see or hear? For example: water bubbling through a crack, a stream along the kerb, a hissing cover.</div><textarea id="c-desc" rows="4" maxlength="500" aria-describedby="desc-help">${esc(S.desc)}</textarea><div class="meta" id="desc-count">${S.desc.length}/500</div>${S.errors.desc?`<div class="err">${S.errors.desc}</div>`:""}</fieldset>`;
+    h+=chipGroup("dur","How long has it been there?",["Started today","A few days","Over a week","Not sure"],S.dur,false);
+    h+=chipGroup("supply","Is the water supply affected?",["Yes","No","Unsure"],S.supply,false);
+    h+=`<fieldset><label class="lbl" for="landmark">Landmarks <span class="opt">(optional)</span></label><input type="text" id="landmark" placeholder="e.g. outside the bakery" value="${esc(S.landmark)}"></fieldset>`;
+    h+=`<fieldset><legend>Photos <span class="opt">(optional, up to 3)</span></legend><div class="photos">${S.photos.map((p,i)=>`<div class="thumb"><img src="${p}" alt="Photo ${i+1} of the leak"><button type="button" aria-label="Remove photo ${i+1}" data-rm="${i}">×</button></div>`).join("")}${S.photos.length<3?`<label class="upload" for="photo-in">+ Add photo<input type="file" id="photo-in" accept="image/*" multiple></label>`:""}</div></fieldset>`;
+    h+=`<fieldset><label class="lbl" for="c-name">Your name</label><input type="text" id="c-name" autocomplete="name" value="${esc(S.name)}">${S.errors.name?`<div class="err">${S.errors.name}</div>`:""}</fieldset>
+      <fieldset><label class="lbl" for="c-phone">Phone number</label><input type="tel" id="c-phone" autocomplete="tel" value="${esc(S.phone)}">${S.errors.phone?`<div class="err">${S.errors.phone}</div>`:""}</fieldset>
+      <fieldset><label class="lbl" for="c-email">Email for updates <span class="opt">(recommended)</span></label><input type="email" id="c-email" autocomplete="email" value="${esc(S.email)}"></fieldset>
+      <p class="meta">Demo only: anything you type stays in this page and isn't sent anywhere.</p>
+      <div class="actions"><button type="button" class="btn" id="back">Back</button><button type="button" class="btn primary" id="submit">Submit report</button></div>`;
+    panel.innerHTML=h;
+  }
+  function renderDone(){
+    panel.innerHTML=`<div class="stepper">Report sent</div><h2>Thanks, ${esc(S.name.trim().split(" ")[0])}. We've got your report</h2>
+      <div class="callout ok">Our operations team will review it and raise a case. We'll then send you the case number by text${S.email.trim()?" and email":""}.</div>
+      ${S.useManual?`<p class="meta">Because you entered the address, our team will confirm the exact location and check for an existing case.</p>`:`<p class="meta">Your leak now shows on the map, so anyone nearby can join your report instead of making a new one.</p>`}
+      <div class="actions"><button type="button" class="btn primary" id="restart">Report another leak</button></div>`;
+  }
+  function maskPhone(p){const d=p.replace(/\D/g,"");return d.length>=4?d.slice(0,2)+"••• •••"+d.slice(-3):p;}
+  function updatesLine(){const a=[];if(S.joinPhone.trim())a.push("text updates to "+maskPhone(S.joinPhone));if(S.joinEmail.trim())a.push("email updates to "+esc(S.joinEmail.trim()));return a.length?"We'll send "+a.join(" and ")+".":"You won't get updates. Add a number or email next time if you'd like them.";}
+  function contactOk(){S.errors={};if(!S.joinName.trim())S.errors.joinName="Enter your name so we can add you to the case.";if(S.joinPhone.trim()&&!/^[0-9 +]{10,15}$/.test(S.joinPhone.trim()))S.errors.joinPhone="Enter a mobile number of 10 to 15 digits, or leave it blank.";if(S.joinEmail.trim()&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(S.joinEmail.trim()))S.errors.joinEmail="Enter an email like name@example.com, or leave it blank.";if(Object.keys(S.errors).length){render();return false;}return true;}
+  function renderJoined(){
+    const l=S.leaks.find(x=>x.id===S.joined);
+    panel.innerHTML=`<div class="stepper">Added to existing report</div><h2>${l.pending?"You've been added to this report":"You've joined case "+l.id}</h2>
+      <div class="callout ok">${l.reopened?"We've reopened this leak and told the team it's leaking again.":`${l.reports} people have now reported this leak.`} ${l.pending?"You'll get the case number once our team has reviewed it. ":""}${updatesLine()}</div>
+      <div class="actions"><button type="button" class="btn primary" id="restart">Report another leak</button></div>`;
+  }
+  function renderPanel(){({leak:renderLeak,manual:renderManual,details:renderDetails,done:renderDone,joined:renderJoined}[S.step]||renderLocate)();}
+  function resetForm(){Object.assign(S,{step:"locate",selected:null,where:null,flow:null,supply:null,dur:null,desc:"",landmark:"",name:"",phone:"",email:"",photos:[],errors:{},joinEmail:"",joinPhone:"",joinName:"",useManual:false,manual:{town:"",street:"",pc:"",w3w:"",near:""}});}
+  panel.addEventListener("click",e=>{
+    const t=e.target,pick=t.closest("[data-pick]");if(pick){selectLeak(pick.dataset.pick);return;}
+    const rm=t.closest("[data-rm]");if(rm){S.photos.splice(+rm.dataset.rm,1);render();return;}
+    if(t.id==="go-new"){S.useManual=false;S.step="details";S.selected=null;render();}
+    else if(t.id==="copy-grid"){const txt=document.getElementById("gridref").textContent;const done=()=>{t.textContent="Copied";setTimeout(()=>{t.textContent="Copy";},1500);};
+      try{navigator.clipboard.writeText(txt).then(done,()=>{selectText();});}catch(err){selectText();}
+      function selectText(){const r=document.createRange();r.selectNodeContents(document.getElementById("gridref"));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);t.textContent="Press Ctrl+C";}}
+    else if(t.id==="go-manual"){S.step="manual";S.selected=null;S.errors={};render();}
+    else if(t.id==="manual-next"){if(!manualOk())return;S.useManual=true;S.errors={};S.step="details";render();}
+    else if(t.id==="back"){S.step=(S.step==="details"&&S.useManual)?"manual":"locate";if(S.step==="locate")S.useManual=false;S.selected=null;S.errors={};render();}
+    else if(t.id==="join"){if(!contactOk())return;const l=S.leaks.find(x=>x.id===S.selected);l.reports++;S.joined=l.id;S.step="joined";render();}
+    else if(t.id==="reopen"){if(!contactOk())return;const l=S.leaks.find(x=>x.id===S.selected);l.status="investigating";l.reopened=true;l.first=today;delete l.repaired;l.reports++;S.joined=l.id;S.step="joined";render();}
+    else if(t.id==="submit")submit();
+    else if(t.id==="restart"){resetForm();render();}
+  });
+  panel.addEventListener("change",e=>{const t=e.target;if(t.id==="m-town")S.manual.town=t.value;
+    if(t.name==="where")S.where=t.value;if(t.name==="flow")S.flow=t.value;if(t.name==="supply")S.supply=t.value;if(t.name==="dur")S.dur=t.value;
+    if(t.id==="photo-in"){const files=[...t.files].slice(0,3-S.photos.length);let left=files.length;if(!left)return;
+      for(const f of files){const fr=new FileReader();fr.onload=()=>{S.photos.push(fr.result);if(--left===0)render();};fr.readAsDataURL(f);}}});
+  panel.addEventListener("input",e=>{const mm={"m-street":"street","m-pc":"pc","m-w3w":"w3w","m-near":"near"};if(mm[e.target.id])S.manual[mm[e.target.id]]=e.target.value;const m={"landmark":"landmark","c-name":"name","c-phone":"phone","c-email":"email","join-email":"joinEmail","join-phone":"joinPhone","join-name":"joinName","c-desc":"desc"};if(m[e.target.id])S[m[e.target.id]]=e.target.value;if(e.target.id==="c-desc"){const c=document.getElementById("desc-count");if(c)c.textContent=S.desc.length+"/500";}});
+  function submit(){
+    S.errors={};
+    if(!S.where)S.errors.where="Choose where the leak is.";
+    if(!S.flow)S.errors.flow="Choose how fast it's flowing.";
+    if(S.desc.trim().length<10)S.errors.desc="Describe what you can see in a few words (at least 10 characters).";
+    if(!S.name.trim())S.errors.name="Enter your name so we can contact you.";
+    if(!/^[0-9 +]{10,15}$/.test(S.phone.trim()))S.errors.phone="Enter a phone number of 10 to 15 digits.";
+    if(Object.keys(S.errors).length){render();const f=panel.querySelector(".err");if(f)f.scrollIntoView({block:"center",behavior:"smooth"});return;}
+    const id="NEW-"+(S.nextRef++);
+    if(!S.useManual)S.leaks.push({id,pending:true,x:S.pin.x,y:S.pin.y,where:S.where==="Verge or field"?"Verge":S.where,status:"investigating",first:today,reports:1,desc:S.desc.trim(),dur:S.dur,photos:S.photos.slice()});
+    S.lastRef=id;S.step="done";render();
+  }
+  function render(){drawMap();renderPanel();}
+  const landingEl=document.getElementById("landing"),appEl=document.getElementById("app");
+  document.getElementById("start").addEventListener("click",()=>{landingEl.hidden=true;appEl.hidden=false;window.scrollTo(0,0);render();});
+  document.getElementById("home").addEventListener("click",()=>{appEl.hidden=true;landingEl.hidden=false;window.scrollTo(0,0);});
+  render();
+})();
+</script>
+
+</body>
+</html>
